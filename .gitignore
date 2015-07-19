@@ -1,5 +1,7 @@
 AuthToken
+IDKeyMap
 
+.idea/
 
 ### GitHub Python gitignore
 # Byte-compiled / optimized / DLL files
