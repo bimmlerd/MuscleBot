@@ -35,7 +35,9 @@ class MuscleBotHandler:
         pattern = "/(\d)" # only single digit choices
         match = re.search(pattern, text)
         if text == "/join":
-            self._handle_join(self.chat_id)
+            self._handle_join()
+        elif text == "/leave":
+            self._handle_leave()
         elif text == "/list":
             self._handle_list()
         elif text == "/register":
@@ -47,7 +49,7 @@ class MuscleBotHandler:
         else:
             self.send_message("That's not something I understand" + telegram.Emoji.PILE_OF_POO)
 
-    def _handle_join(self, chat_id):
+    def _handle_join(self):
         try:
             events = self._get_events()
             if 1 < len(events) < 10:
@@ -56,10 +58,34 @@ class MuscleBotHandler:
                     message += "/{0} for {1}\n".format(i, self.format_event(event))
                 self.send_message(message)
                 self.options = events
-
+                self.action = self._join_event
             elif len(events) == 1:
                 event = events[0]
                 self._join_event(event)
+            elif not events:
+                self.send_message("No events are joinable at this point.")
+            else:
+                # e.g. more than 9 events
+                raise EnvironmentError
+
+        except EnvironmentError:
+            self.send_message("Uh oh, something went wrong inside the techy heart of me 0.0")
+
+    def _handle_leave(self):
+        try:
+            events = self._get_events()
+            if 1 < len(events) < 10:
+                message = "Which event would you like to leave?\n"
+                for i, event in enumerate(events, 1):
+                    message += "/{0} for {1}\n".format(i, self.format_event(event))
+                self.send_message(message)
+                self.options = events
+                self.action = self._leave_event
+            elif len(events) == 1:
+                event = events[0]
+                self._leave_event(event)
+            elif not events:
+                self.send_message("No events available.")
             else:
                 # e.g. more than 9 events
                 raise EnvironmentError
@@ -71,7 +97,7 @@ class MuscleBotHandler:
         index = int(choice) - 1
         if 0 <= index < len(self.options):
             event = self.options[index]
-            self._join_event(event)
+            self.action(event)
         else:
             self.send_message("IndexOutOfBoundExcep... Nope, we're good. Not a valid choice though, so try again.")
 
@@ -101,11 +127,28 @@ class MuscleBotHandler:
         if r.status_code == 200:
             self.send_message("Okidoke, you'll get your weights.")
             self.options = None
+            self.action = None
         elif r.status_code == 208:
             self.send_message("You're already part of that event. I appreciate the eagerness though"
                               + telegram.Emoji.FACE_WITH_STUCK_OUT_TONGUE_AND_WINKING_EYE)
         elif r.status_code == 412:
             self.send_message("You need to register you telegram account with muscle before you can join events. "
+                              "Try /register.")
+        else:
+            self.send_message("Uh oh, something went kinda wrong...")
+
+    def _leave_event(self, event):
+        url = self.API_BASE_URL + "leave/" + event['_id']
+        payload = {'telegram_id': self.chat_id, 'key': self.balancer.API_KEY}   # fine since over HTTPS
+        r = requests.post(url, data=payload)
+        if r.status_code == 200:
+            self.send_message("Okidoke, you're out.")
+            self.options = None
+            self.action = None
+        elif r.status_code == 208:
+            self.send_message("You're not even part of that event. Wat.")
+        elif r.status_code == 412:
+            self.send_message("You need to register you telegram account with muscle before you can leave events. "
                               "Try /register.")
         else:
             self.send_message("Uh oh, something went kinda wrong...")
