@@ -8,6 +8,7 @@ import requests
 import json
 import time
 import re
+import traceback
 
 
 class MuscleBotHandler:
@@ -207,7 +208,22 @@ class MuscleBotBalancer:
 
 def main():
     balancer = MuscleBotBalancer()
-    balancer.run()
+    crashcount = 0
+    while crashcount < 100:
+        try:
+            f = open("log.txt", "a")
+            balancer.run()
+        except Exception as e:
+            f.write("----- START -----")
+            f.write(e.message + "\n")
+            f.write("----- TRACEBACK -----")
+            f.write(traceback.format_exc())
+            f.write("----- END -----\n\n")
+        finally:
+            crashcount += 1
+            f.close()
+
+
 
 if __name__ == '__main__':
     main()
