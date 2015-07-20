@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 # encoding: utf-8
 
-'''Muscle Telegram Bot'''
-
 __author__ = 'bimmlerd@student.ethz.ch'
 
 import telegram
@@ -13,7 +11,7 @@ import re
 
 
 class MuscleBotHandler:
-    """ The MuscleBot Telegram bot allows you to join events on muscle.bimmler.ch in a convenient fashion via telegram.
+    """ The MuscleBot Telegram bot allows you to join events on muscle.bimmler.ch in a convenient fashion.
     """
     # BASE_URL = "https://muscle.bimmler.ch/"
     BASE_URL = "http://localhost:3000/"
@@ -29,21 +27,23 @@ class MuscleBotHandler:
 
     def handle_update(self, update):
         text = update.message.text
-        chat_id = update.message.chat.id
 
         if not text:
             self.send_message("So sorry, I only understand text at the moment...")
+            return
 
-        pattern = "(\d)" # only single digit choices
+        pattern = "/(\d)" # only single digit choices
         match = re.search(pattern, text)
         if text == "/join":
-            self._handle_join(chat_id)
+            self._handle_join(self.chat_id)
         elif text == "/list":
-            self.send_message("list is not yet implemented")
+            self._handle_list()
         elif text == "/register":
             self._handle_register()
         elif self.options and match:
             self._handle_event_choice(match.group(1))
+        elif match and not self.options:
+            self.send_message("You already completed the menu flow.")
         else:
             self.send_message("That's not something I understand" + telegram.Emoji.PILE_OF_POO)
 
@@ -60,8 +60,6 @@ class MuscleBotHandler:
             elif len(events) == 1:
                 event = events[0]
                 self._join_event(event)
-                self.send_message("Yup, you got it.")
-
             else:
                 # e.g. more than 9 events
                 raise EnvironmentError
@@ -73,9 +71,7 @@ class MuscleBotHandler:
         index = int(choice) - 1
         if 0 <= index < len(self.options):
             event = self.options[index]
-            self.send_message("You chose option {0}, which was {1}".format(choice, self.format_event(event)))
             self._join_event(event)
-            self.options = None
         else:
             self.send_message("IndexOutOfBoundExcep... Nope, we're good. Not a valid choice though, so try again.")
 
@@ -87,6 +83,13 @@ class MuscleBotHandler:
         msg = "Okay, I'm gonna send you a special link now, please open it and log into muscle if prompted:\n{}".format(link)
         self.send_message(msg)
 
+    def _handle_list(self):
+        events = self._get_events()
+        msg = "The following events can be joined:\n"
+        for event in events:
+            msg += self.format_event(event) + "\n"
+        self.send_message(msg)
+
     def _get_events(self):
         url = self.API_BASE_URL + "events/"
         return self._request(url)
@@ -96,17 +99,20 @@ class MuscleBotHandler:
         payload = {'telegram_id': self.chat_id, 'key': self.balancer.API_KEY}   # fine since over HTTPS
         r = requests.post(url, data=payload)
         if r.status_code == 200:
-            self.send_message("So that should've worked.")
+            self.send_message("Okidoke, you'll get your weights.")
+            self.options = None
         elif r.status_code == 208:
             self.send_message("You're already part of that event. I appreciate the eagerness though"
                               + telegram.Emoji.FACE_WITH_STUCK_OUT_TONGUE_AND_WINKING_EYE)
+        elif r.status_code == 412:
+            self.send_message("You need to register you telegram account with muscle before you can join events. "
+                              "Try /register.")
         else:
             self.send_message("Uh oh, something went kinda wrong...")
-        pass
 
     @staticmethod
     def format_event(event):
-        return "{0} at {1}".format(event['name'], time.strftime("%H:%M, %d.%m", time.localtime(event['date']/1000)))
+        return "{0} at {1}".format(event['name'], time.strftime("%H:%M, %d.%m.%y", time.localtime(event['date']/1000)))
 
     @staticmethod
     def _request(url, payload={}):
@@ -134,6 +140,7 @@ class MuscleBotBalancer:
         self.handlers = dict()  # handlers are instances of MuscleBotHandler, one for each conversation
 
     def run(self):
+        # TODO replace with webhook from telegram, much nicer.
         while True:
             for update in self.bot.getUpdates(offset=self.LAST_UPDATE_ID):
                 update_id = update.update_id
