@@ -183,10 +183,16 @@ class MuscleBotBalancer:
         with open("BotKey") as f:
             self.API_KEY = f.readline().strip()
 
+        with open("TelegramToken") as f:
+            self.WEBHOOK_TOKEN = f.readline().strip()
+        self.WEBHOOK_HOSTNAME = MuscleBotHandler.API_BASE_URL + self.WEBHOOK_TOKEN
+
         self.bot = telegram.Bot(token)
         self.LAST_UPDATE_ID = self.bot.getUpdates()[-1].update_id
         self.handlers = dict()  # handlers are instances of MuscleBotHandler, one for each conversation
         self.update_queue = Queue.Queue()
+
+        self.bot.setWebhook(self.WEBHOOK_HOSTNAME)
 
     def __call__(self, environ, start_response):
         request = Request(environ)
@@ -238,7 +244,7 @@ class MuscleBotBalancer:
 
 def main():
     balancer = MuscleBotBalancer()
-    t = threading.Thread(target=run_simple, args=['0.0.0.0', 8443, balancer])
+    t = threading.Thread(target=run_simple, args=[balancer.WEBHOOK_HOSTNAME, 8443, balancer])
     t.daemon = True
     t.start()
     f = open("log.txt", "a")

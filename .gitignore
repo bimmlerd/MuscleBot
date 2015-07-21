@@ -1,5 +1,6 @@
 AuthToken
 BotKey
+TelegramToken
 log.txt
 
 .idea/
