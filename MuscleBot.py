@@ -11,9 +11,11 @@ import re
 import traceback
 import Queue
 import threading
-from werkzeug.wrappers import Request, Response
-from werkzeug.serving import run_simple
+from flask import Flask, request
+app = Flask(__name__)
 
+with open("TelegramToken") as f:
+    WEBHOOK_TOKEN = f.readline().strip()
 
 class MuscleBotHandler:
     """ The MuscleBot Telegram bot allows you to join events on muscle.bimmler.ch in a convenient fashion.
@@ -185,25 +187,30 @@ class MuscleBotBalancer:
 
         with open("TelegramToken") as f:
             self.WEBHOOK_TOKEN = f.readline().strip()
-        self.WEBHOOK_HOSTNAME = MuscleBotHandler.BASE_URL + self.WEBHOOK_TOKEN
+
+        self.WEBHOOK_HOSTNAME = MuscleBotHandler.BASE_URL.strip("/") + ":8443/" + self.WEBHOOK_TOKEN
 
         self.bot = telegram.Bot(token)
         self.handlers = dict()  # handlers are instances of MuscleBotHandler, one for each conversation
         self.update_queue = Queue.Queue()
+        self.webhook_thread = threading.Thread(target=self._run_webhook_server())
+        self.webhook_thread.daemon = True
+        self.webhook_thread.start()
+        self.bot.setWebhook(self.WEBHOOK_HOSTNAME) #
 
-        self.bot.setWebhook(self.WEBHOOK_HOSTNAME)
+    def _run_webhook_server(self):
+        app.run("46.101.164.38", 8443, ssl_context=("muscle.bimmler.ch.crt", "muscle.bimmler.ch.key"))
 
-    def __call__(self, environ, start_response):
-        request = Request(environ)
-        response = Response("{}")
+    @app.route("/"+WEBHOOK_TOKEN, methods=["POST"])
+    def _handle_request(self):
         try:
             data = self._parse(request.data)
         except Exception as e:
-            # TODO do seomthing useful here
+            # TODO do something useful here
             return
         for x in data:
             self.update_queue.put(telegram.Update.de_json(x))
-        return response(environ, start_response)
+        return "{}"
 
     def run(self):
         while True:
@@ -243,11 +250,8 @@ class MuscleBotBalancer:
 
 def main():
     balancer = MuscleBotBalancer()
-    t = threading.Thread(target=run_simple, args=[balancer.WEBHOOK_HOSTNAME, 8443, balancer])
-    t.daemon = True
-    t.start()
-    f = open("log.txt", "a")
     try:
+        f = open("log.txt", "a")
         balancer.run()
     except Exception as e:
         f.write("----- START -----")
