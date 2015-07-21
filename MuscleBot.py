@@ -185,7 +185,7 @@ class MuscleBotBalancer:
 
         with open("TelegramToken") as f:
             self.WEBHOOK_TOKEN = f.readline().strip()
-        self.WEBHOOK_HOSTNAME = MuscleBotHandler.API_BASE_URL + self.WEBHOOK_TOKEN
+        self.WEBHOOK_HOSTNAME = MuscleBotHandler.BASE_URL + self.WEBHOOK_TOKEN
 
         self.bot = telegram.Bot(token)
         self.LAST_UPDATE_ID = self.bot.getUpdates()[-1].update_id
