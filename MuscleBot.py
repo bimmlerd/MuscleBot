@@ -9,13 +9,17 @@ import json
 import time
 import re
 import traceback
+import Queue
+import threading
+from werkzeug.wrappers import Request, Response
+from werkzeug.serving import run_simple
 
 
 class MuscleBotHandler:
     """ The MuscleBot Telegram bot allows you to join events on muscle.bimmler.ch in a convenient fashion.
     """
-    # BASE_URL = "https://muscle.bimmler.ch/"
-    BASE_URL = "http://localhost:3000/"
+    BASE_URL = "https://muscle.bimmler.ch/"
+    #BASE_URL = "http://localhost:3000/"
     API_BASE_URL = BASE_URL + "api/"
 
     def __init__(self, balancer, chat_id):
@@ -182,15 +186,25 @@ class MuscleBotBalancer:
         self.bot = telegram.Bot(token)
         self.LAST_UPDATE_ID = self.bot.getUpdates()[-1].update_id
         self.handlers = dict()  # handlers are instances of MuscleBotHandler, one for each conversation
+        self.update_queue = Queue.Queue()
+
+    def __call__(self, environ, start_response):
+        request = Request(environ)
+        response = Response("{}")
+        try:
+            data = self._parse(request.data)
+        except Exception as e:
+            # TODO do seomthing useful here
+            return
+        for x in data:
+            self.update_queue.put(telegram.Update.de_json(x))
+        return response(environ, start_response)
 
     def run(self):
-        # TODO replace with webhook from telegram, much nicer.
         while True:
-            for update in self.bot.getUpdates(offset=self.LAST_UPDATE_ID):
-                update_id = update.update_id
-
-                if self.LAST_UPDATE_ID < update_id:  # If newer than latest update
-                    self.pass_update_to_handler(update)
+            update = self.update_queue.get()
+            self.pass_update_to_handler(update)
+            self.update_queue.task_done()
 
     def pass_update_to_handler(self, update):
         chat_id = update.message.chat.id
@@ -205,10 +219,25 @@ class MuscleBotBalancer:
     def send_message(self, message, chat_id):
         self.bot.sendMessage(chat_id=chat_id, text=message)
 
+    def _parse(self, json_data):
+        try:
+            data = json.loads(json_data.decode())
+            if not data['ok']:
+                raise telegram.TelegramError(data['description'])
+        except ValueError:
+            if '<title>403 Forbidden</title>' in json_data:
+                raise telegram.TelegramError({'message': 'API must be authenticated'})
+            raise telegram.TelegramError({'message': 'JSON decoding'})
+
+        return data['result']
+
 
 def main():
     balancer = MuscleBotBalancer()
     crashcount = 0
+    t = threading.Thread(target=run_simple, args=['0.0.0.0', 8443, balancer])
+    t.daemon = True
+    t.start()
     while crashcount < 100:
         try:
             f = open("log.txt", "a")
@@ -222,8 +251,6 @@ def main():
         finally:
             crashcount += 1
             f.close()
-
-
 
 if __name__ == '__main__':
     main()
