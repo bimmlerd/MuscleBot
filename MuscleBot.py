@@ -188,7 +188,6 @@ class MuscleBotBalancer:
         self.WEBHOOK_HOSTNAME = MuscleBotHandler.BASE_URL + self.WEBHOOK_TOKEN
 
         self.bot = telegram.Bot(token)
-        self.LAST_UPDATE_ID = self.bot.getUpdates()[-1].update_id
         self.handlers = dict()  # handlers are instances of MuscleBotHandler, one for each conversation
         self.update_queue = Queue.Queue()
 
