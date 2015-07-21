@@ -202,9 +202,13 @@ class MuscleBotBalancer:
 
     def run(self):
         while True:
-            update = self.update_queue.get()
-            self.pass_update_to_handler(update)
-            self.update_queue.task_done()
+            try:
+                update = self.update_queue.get(timeout=1)
+                self.pass_update_to_handler(update)
+                self.update_queue.task_done()
+            except Queue.Empty:
+                time.sleep(0.1)
+
 
     def pass_update_to_handler(self, update):
         chat_id = update.message.chat.id
@@ -234,23 +238,20 @@ class MuscleBotBalancer:
 
 def main():
     balancer = MuscleBotBalancer()
-    crashcount = 0
     t = threading.Thread(target=run_simple, args=['0.0.0.0', 8443, balancer])
     t.daemon = True
     t.start()
-    while crashcount < 100:
-        try:
-            f = open("log.txt", "a")
-            balancer.run()
-        except Exception as e:
-            f.write("----- START -----")
-            f.write(e.message + "\n")
-            f.write("----- TRACEBACK -----")
-            f.write(traceback.format_exc())
-            f.write("----- END -----\n\n")
-        finally:
-            crashcount += 1
-            f.close()
+    f = open("log.txt", "a")
+    try:
+        balancer.run()
+    except Exception as e:
+        f.write("----- START -----")
+        f.write(e.message + "\n")
+        f.write("----- TRACEBACK -----")
+        f.write(traceback.format_exc())
+        f.write("----- END -----\n\n")
+    finally:
+        f.close()
 
 if __name__ == '__main__':
     main()
