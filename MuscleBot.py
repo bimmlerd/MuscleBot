@@ -209,7 +209,7 @@ class MuscleBotBalancer:
 
     def _run_webhook_server(self):
         print "Started Serving."
-        serv = WSGIServer(('muscle.bimmler.ch', 8443), self.handle_request, certfile="muscle.bimmler.ch.crt", keyfile="muscle.bimmler.ch.key")
+        serv = WSGIServer(("46.101.164.38", 8443), self.handle_request, certfile="muscle.bimmler.ch.crt", keyfile="muscle.bimmler.ch.key")
         self.server = gevent.spawn(serv.serve_forever)
 
     def run(self):
