@@ -10,12 +10,10 @@ import time
 import re
 import traceback
 import Queue
-import threading
-from flask import Flask, request
-app = Flask(__name__)
-
-with open("TelegramToken") as f:
-    WEBHOOK_TOKEN = f.readline().strip()
+from gevent.pywsgi import WSGIServer
+import gevent
+import gevent.monkey
+gevent.monkey.patch_all()
 
 class MuscleBotHandler:
     """ The MuscleBot Telegram bot allows you to join events on muscle.bimmler.ch in a convenient fashion.
@@ -193,34 +191,40 @@ class MuscleBotBalancer:
         self.bot = telegram.Bot(token)
         self.handlers = dict()  # handlers are instances of MuscleBotHandler, one for each conversation
         self.update_queue = Queue.Queue()
-        self.webhook_thread = threading.Thread(target=self._run_webhook_server())
-        self.webhook_thread.daemon = True
-        self.webhook_thread.start()
-        self.bot.setWebhook(self.WEBHOOK_HOSTNAME) #
+        self._run_webhook_server()
+        self.bot.setWebhook(self.WEBHOOK_HOSTNAME)
+
+    def handle_request(self, env, start_response):
+        if env['PATH_INFO'] == '/'+self.WEBHOOK_TOKEN:
+            raw_data = env['wsgi.input'].rfile.readline()
+            data = self._parse(raw_data)
+            for x in data:
+                self.update_queue.put(telegram.Update.de_json(x))
+            start_response('200 OK', [('Content-Type', 'application/json')])
+            return [b"{}"]
+        else:
+            start_response('404 Not Found', [('Content-Type', 'text/html')])
+            return [b'<h1>Not Found</h1>']
+
 
     def _run_webhook_server(self):
-        app.run("46.101.164.38", 8443, ssl_context=("muscle.bimmler.ch.crt", "muscle.bimmler.ch.key"))
-
-    @app.route("/"+WEBHOOK_TOKEN, methods=["POST"])
-    def _handle_request(self):
-        try:
-            data = self._parse(request.data)
-        except Exception as e:
-            # TODO do something useful here
-            return
-        for x in data:
-            self.update_queue.put(telegram.Update.de_json(x))
-        return "{}"
+        print "Started Serving."
+        serv = WSGIServer(('muscle.bimmler.ch', 8443), self.handle_request, certfile="muscle.bimmler.ch.crt", keyfile="muscle.bimmler.ch.key")
+        self.server = gevent.spawn(serv.serve_forever)
 
     def run(self):
+        print "Started running."
         while True:
             try:
-                update = self.update_queue.get(timeout=1)
-                self.pass_update_to_handler(update)
-                self.update_queue.task_done()
-            except Queue.Empty:
-                time.sleep(0.1)
-
+                gevent.joinall([self.server], timeout=1)
+                try:
+                    update = self.update_queue.get(timeout=0.1)
+                    self.pass_update_to_handler(update)
+                    self.update_queue.task_done()
+                except Queue.Empty:
+                    pass
+            except KeyboardInterrupt:
+                self.server.stop()
 
     def pass_update_to_handler(self, update):
         chat_id = update.message.chat.id
@@ -235,7 +239,8 @@ class MuscleBotBalancer:
     def send_message(self, message, chat_id):
         self.bot.sendMessage(chat_id=chat_id, text=message)
 
-    def _parse(self, json_data):
+    @staticmethod
+    def _parse(json_data):
         try:
             data = json.loads(json_data.decode())
             if not data['ok']:
@@ -246,6 +251,7 @@ class MuscleBotBalancer:
             raise telegram.TelegramError({'message': 'JSON decoding'})
 
         return data['result']
+
 
 
 def main():

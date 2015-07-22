@@ -2,7 +2,8 @@ AuthToken
 BotKey
 TelegramToken
 log.txt
-
+muscle.bimmler.ch.key
+muscle.bimmler.ch.crt
 .idea/
 
 ### GitHub Python gitignore
