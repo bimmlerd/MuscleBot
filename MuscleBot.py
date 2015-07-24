@@ -14,6 +14,7 @@ from gevent.pywsgi import WSGIServer
 import gevent
 import gevent.monkey
 gevent.monkey.patch_all()
+import werkzeug.wsgi
 
 class MuscleBotHandler:
     """ The MuscleBot Telegram bot allows you to join events on muscle.bimmler.ch in a convenient fashion.
@@ -196,7 +197,10 @@ class MuscleBotBalancer:
 
     def handle_request(self, env, start_response):
         if env['PATH_INFO'] == '/'+self.WEBHOOK_TOKEN:
-            raw_data = env['wsgi.input'].rfile.readline()
+            iter = werkzeug.wsgi.make_line_iter(env['wsgi.input'])
+            raw_data = ""
+            for line in iter:
+                raw_data += line
             data = self._parse(raw_data)
             for x in data:
                 self.update_queue.put(telegram.Update.de_json(x))
@@ -204,12 +208,13 @@ class MuscleBotBalancer:
             return [b"{}"]
         else:
             start_response('404 Not Found', [('Content-Type', 'text/html')])
-            return [b'<h1>Not Found</h1>']
+            return [b'<h1>Not Found</h1>\n']
 
 
     def _run_webhook_server(self):
         print "Started Serving."
-        serv = WSGIServer(("46.101.164.38", 8443), self.handle_request, certfile="muscle.bimmler.ch.crt", keyfile="muscle.bimmler.ch.key")
+        serv = WSGIServer(("0.0.0.0", 8443), self.handle_request,
+                          certfile="muscle.bimmler.ch.crt", keyfile="muscle.bimmler.ch.key")
         self.server = gevent.spawn(serv.serve_forever)
 
     def run(self):
@@ -234,7 +239,7 @@ class MuscleBotBalancer:
             self.handlers[chat_id] = MuscleBotHandler(self, chat_id)
 
         self.handlers[chat_id].handle_update(update)
-        self.LAST_UPDATE_ID = update.update_id
+        #self.LAST_UPDATE_ID = update.update_id
 
     def send_message(self, message, chat_id):
         self.bot.sendMessage(chat_id=chat_id, text=message)
@@ -249,9 +254,7 @@ class MuscleBotBalancer:
             if '<title>403 Forbidden</title>' in json_data:
                 raise telegram.TelegramError({'message': 'API must be authenticated'})
             raise telegram.TelegramError({'message': 'JSON decoding'})
-
         return data['result']
-
 
 
 def main():
