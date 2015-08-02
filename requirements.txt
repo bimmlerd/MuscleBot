@@ -1,0 +1,6 @@
+python-telegram-bot
+flask
+redis_wrap
+requests
+rq
+certifi

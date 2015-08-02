@@ -1,26 +1,19 @@
-#!/usr/bin/env python
-# encoding: utf-8
-
-__author__ = 'bimmlerd@student.ethz.ch'
-
+# coding: utf-8
 import telegram
 import requests
 import json
 import time
 import re
-import traceback
-import Queue
-from gevent.pywsgi import WSGIServer
-import gevent
-import gevent.monkey
-gevent.monkey.patch_all()
-import werkzeug.wsgi
+import config
+from rq.decorators import job
+
+__author__ = 'bimmlerd@student.ethz.ch'
+
 
 class MuscleBotHandler:
     """ The MuscleBot Telegram bot allows you to join events on muscle.bimmler.ch in a convenient fashion.
     """
     BASE_URL = "https://muscle.bimmler.ch/"
-    #BASE_URL = "http://localhost:3000/"
     API_BASE_URL = BASE_URL + "api/"
 
     def __init__(self, balancer, chat_id):
@@ -31,6 +24,7 @@ class MuscleBotHandler:
     def send_message(self, message):
         self.balancer.send_message(message, self.chat_id)
 
+    @job('reply', connection=config.redis, result_ttl=5)
     def handle_update(self, update):
         text = update.message.text
 
@@ -164,7 +158,9 @@ class MuscleBotHandler:
         return "{0} at {1}".format(event['name'], time.strftime("%H:%M, %d.%m.%y", time.localtime(event['date']/1000)))
 
     @staticmethod
-    def _request(url, payload={}):
+    def _request(url, payload=None):
+        if not payload:
+            payload = {}
         response = json.loads(requests.get(url, params=payload).text)
         if response['status'] == 'success':
             data = response['data']
@@ -178,98 +174,23 @@ class MuscleBotBalancer:
     """
 
     def __init__(self):
-        with open("AuthToken") as f:
-            token = f.readline().strip()
-
-        with open("BotKey") as f:
-            self.API_KEY = f.readline().strip()
-
-        with open("TelegramToken") as f:
-            self.WEBHOOK_TOKEN = f.readline().strip()
-
-        self.WEBHOOK_HOSTNAME = MuscleBotHandler.BASE_URL.strip("/") + ":8443/" + self.WEBHOOK_TOKEN
+        token = config.TOKEN
+        self.API_KEY = config.API_KEY
+        self.WEBHOOK_TOKEN = config.WEBHOOK_TOKEN
+        self.WEBHOOK_HOSTNAME = config.PATH
 
         self.bot = telegram.Bot(token)
         self.handlers = dict()  # handlers are instances of MuscleBotHandler, one for each conversation
-        self.update_queue = Queue.Queue()
-        self._run_webhook_server()
         self.bot.setWebhook(self.WEBHOOK_HOSTNAME)
-
-    def handle_request(self, env, start_response):
-        if env['PATH_INFO'] == '/'+self.WEBHOOK_TOKEN:
-            iter = werkzeug.wsgi.make_line_iter(env['wsgi.input'])
-            raw_data = ""
-            for line in iter:
-                raw_data += line
-            data = self._parse(raw_data)
-            for x in data:
-                self.update_queue.put(telegram.Update.de_json(x))
-            start_response('200 OK', [('Content-Type', 'application/json')])
-            return [b"{}"]
-        else:
-            start_response('404 Not Found', [('Content-Type', 'text/html')])
-            return [b'<h1>Not Found</h1>\n']
-
-
-    def _run_webhook_server(self):
-        print "Started Serving."
-        serv = WSGIServer(("0.0.0.0", 8443), self.handle_request,
-                          certfile="muscle.bimmler.ch.crt", keyfile="muscle.bimmler.ch.key")
-        self.server = gevent.spawn(serv.serve_forever)
-
-    def run(self):
-        print "Started running."
-        while True:
-            try:
-                gevent.joinall([self.server], timeout=1)
-                try:
-                    update = self.update_queue.get(timeout=0.1)
-                    self.pass_update_to_handler(update)
-                    self.update_queue.task_done()
-                except Queue.Empty:
-                    pass
-            except KeyboardInterrupt:
-                self.server.stop()
 
     def pass_update_to_handler(self, update):
         chat_id = update.message.chat.id
 
         if not self.handlers.has_key(chat_id):
-            # spawn new handler
-            self.handlers[chat_id] = MuscleBotHandler(self, chat_id)
+            self.handlers[chat_id] = MuscleBotHandler(self, chat_id) # spawn new handler
 
-        self.handlers[chat_id].handle_update(update)
-        #self.LAST_UPDATE_ID = update.update_id
+        self.handlers[chat_id].handle_update.delay(update)
 
     def send_message(self, message, chat_id):
         self.bot.sendMessage(chat_id=chat_id, text=message)
 
-    @staticmethod
-    def _parse(json_data):
-        try:
-            data = json.loads(json_data.decode())
-            if not data['ok']:
-                raise telegram.TelegramError(data['description'])
-        except ValueError:
-            if '<title>403 Forbidden</title>' in json_data:
-                raise telegram.TelegramError({'message': 'API must be authenticated'})
-            raise telegram.TelegramError({'message': 'JSON decoding'})
-        return data['result']
-
-
-def main():
-    balancer = MuscleBotBalancer()
-    try:
-        f = open("log.txt", "a")
-        balancer.run()
-    except Exception as e:
-        f.write("----- START -----")
-        f.write(e.message + "\n")
-        f.write("----- TRACEBACK -----")
-        f.write(traceback.format_exc())
-        f.write("----- END -----\n\n")
-    finally:
-        f.close()
-
-if __name__ == '__main__':
-    main()
