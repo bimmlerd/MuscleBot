@@ -9,10 +9,10 @@ sys.path.insert(0, path.abspath(path.dirname(__file__)))
 
 
 def main():
-    if not config.redis:
+    if not config.redis_conf:
         sys.exit('Missing redis config')
     listen = ('high', 'default', 'reply', 'low')
-    conn = Redis(**config.redis)
+    conn = Redis(**config.redis_conf)
     with Connection(conn):
         worker = Worker(map(Queue, listen))
         worker.work()

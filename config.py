@@ -19,4 +19,5 @@ API_KEY = config.get('API_key')
 
 PATH = '%s:%s/%s' % (SERVER.strip('/'), PORT, WEBHOOK_TOKEN)
 
-redis = SYSTEMS['default'] ## fix this if your config.json isn't default
+redis = SYSTEMS['default']
+redis_conf = config.get('redis')
